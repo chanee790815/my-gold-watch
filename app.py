@@ -6,7 +6,7 @@ from bs4 import BeautifulSoup
 import time
 
 # --- 페이지 설정 ---
-st.set_page_config(page_title="Gold Spread & Macro", page_icon="💰", layout="centered")
+st.set_page_config(page_title="금시세 확인하기 by chan", page_icon="💰", layout="centered")
 
 # --- 함수: 데이터 가져오기 (안전한 버전) ---
 def get_financial_data():
@@ -125,3 +125,4 @@ with st.spinner('미국 및 한국 시장 데이터를 조회 중...'):
     with t2:
         st.metric("다우 운송지수", f"{macro_data.get('Trans_Avg', 0):,.0f}")
         st.caption("*운송지수는 실물 경기 선행 지표로 활용됩니다.")
+

@@ -100,15 +100,31 @@ with tab1:
                         cliponaxis=False
                     ))
 
-            # 레이아웃 설정
-            fig.update_layout(
-                plot_bgcolor="white",
-                xaxis=dict(side="top", showgrid=True, gridcolor="rgba(220, 220, 220, 0.8)", dtick="M1", tickformat="%Y-%m", ticks="outside"),
-                yaxis=dict(autorange="reversed", showgrid=True, gridcolor="rgba(240, 240, 240, 0.8)"),
-                height=800,
-                margin=dict(t=150, l=10, r=10, b=50),
-                showlegend=True
-            )
+      
+# 레이아웃 설정 수정
+fig.update_layout(
+    plot_bgcolor="white",
+    xaxis=dict(
+        side="top", 
+        showgrid=True, 
+        gridcolor="rgba(220, 220, 220, 0.8)", 
+        dtick="M1", 
+        tickformat="%Y-%m", 
+        ticks="outside"
+    ),
+    yaxis=dict(
+        # [수정] "reversed"를 제거하고 True로 설정합니다. 
+        # 이미 위에서 category_orders로 순서를 잡았기 때문에 reversed를 쓰면 역순이 됩니다.
+        autorange=True, 
+        showgrid=True, 
+        gridcolor="rgba(240, 240, 240, 0.8)",
+        # 추가로 항목 간 간격을 조절하여 표 느낌을 더 살릴 수 있습니다.
+        fixedrange=False
+    ),
+    height=800,
+    margin=dict(t=150, l=10, r=10, b=50),
+    showlegend=True
+)
             
             fig.update_traces(marker_line_color="rgb(8,48,107)", marker_line_width=1, opacity=0.8)
             st.plotly_chart(fig, use_container_width=True)
@@ -163,3 +179,4 @@ with tab3:
             if b2.form_submit_button("삭제 🗑️", use_container_width=True):
                 sheet.delete_rows(selected_idx + 2)
                 st.error("🗑️ 삭제 완료!"); time.sleep(1); st.rerun()
+

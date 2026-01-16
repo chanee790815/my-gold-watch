@@ -11,7 +11,7 @@ import plotly.express as px
 st.set_page_config(page_title="현장 공정 관리", page_icon="🏗️", layout="wide")
 
 # =========================================================
-# 🔐 [인증 키 구역] 방금 주신 새 열쇠(f5b0...)를 심었습니다!
+# 🔐 [인증 키 구역] 
 # =========================================================
 raw_json_data = '''
 {
@@ -34,10 +34,14 @@ raw_json_data = '''
 @st.cache_resource
 def get_connection():
     try:
-        # JSON 문자열을 파이썬 딕셔너리로 변환
         key_dict = json.loads(raw_json_data)
         
-        scopes = ["https://www.googleapis.com/auth/spreadsheets"]
+        # ✅ [수정] 드라이브 권한(drive)을 추가했습니다! 이게 없으면 403 에러가 납니다.
+        scopes = [
+            "https://www.googleapis.com/auth/spreadsheets",
+            "https://www.googleapis.com/auth/drive"
+        ]
+        
         creds = Credentials.from_service_account_info(key_dict, scopes=scopes)
         client = gspread.authorize(creds)
         return client
@@ -48,13 +52,14 @@ def get_pms_data():
     client = get_connection()
     if client:
         try:
-            # ⚠️ 시트 이름이 'pms_db'가 맞는지 확인 필요
+            # ⚠️ 구글 시트 제목이 'pms_db'가 맞는지 확인하세요.
             sh = client.open('pms_db') 
             worksheet = sh.sheet1
             data = worksheet.get_all_records()
             return pd.DataFrame(data), worksheet
         except gspread.SpreadsheetNotFound:
-            st.error("🚨 구글 시트를 찾을 수 없습니다. 시트 이름이 'pms_db'인지 확인해주세요.")
+            st.error("🚨 구글 시트를 찾을 수 없습니다. (이유: 시트 이름이 틀렸거나, 봇에게 공유하지 않음)")
+            st.info("💡 해결법: 구글 시트 우측 상단 '공유' 버튼 누르고 streamlit-bot@mp-pms-app.iam.gserviceaccount.com 에게 '편집자' 권한을 주세요.")
             return pd.DataFrame(), None
         except Exception as e:
              st.error(f"🚨 데이터 읽기 오류: {e}")
@@ -62,14 +67,12 @@ def get_pms_data():
     return pd.DataFrame(), None
 
 # --- 메인 화면 ---
-# ✅ 제목이 '(Final Ver.)'로 바뀌면 새 코드가 적용된 것입니다!
 st.title("🏗️ 당진 적서리 태양광 PMS (Final Ver.)")
 
 # 데이터 로딩
 df, sheet = get_pms_data()
 
 if sheet is None:
-    st.error("🚨 데이터베이스 연결에 실패했습니다.")
     st.stop()
 
 # 탭 구성
@@ -80,14 +83,12 @@ with tab1:
     st.subheader("실시간 공정 현황")
     
     if not df.empty:
-        # 날짜 변환 및 정렬
         if '시작일' in df.columns and '종료일' in df.columns:
             try:
                 df['시작일'] = pd.to_datetime(df['시작일'])
                 df['종료일'] = pd.to_datetime(df['종료일'])
                 df = df.sort_values(by="시작일")
                 
-                # 간트 차트 그리기
                 fig = px.timeline(
                     df, 
                     x_start="시작일", 
@@ -97,13 +98,12 @@ with tab1:
                     hover_data=["대분류", "비고"],
                     title="전체 공정 스케줄"
                 )
-                fig.update_yaxes(autorange="reversed") # 위에서부터 순서대로
+                fig.update_yaxes(autorange="reversed") 
                 st.plotly_chart(fig, use_container_width=True)
                 
             except Exception as e:
                 st.warning(f"차트 생성 중 오류: {e}")
 
-        # 데이터 테이블 스타일링
         st.divider()
         st.write("📋 상세 데이터 목록")
         
@@ -114,7 +114,6 @@ with tab1:
             return ''
             
         try:
-            # 날짜를 다시 보기 좋게 문자열로
             display_df = df.copy()
             if '시작일' in display_df.columns:
                 display_df['시작일'] = display_df['시작일'].dt.strftime('%Y-%m-%d')
@@ -150,7 +149,6 @@ with tab2:
         submitted = st.form_submit_button("저장하기 💾", use_container_width=True)
         
         if submitted:
-            # 날짜를 문자열로 변환해서 저장
             new_row = [
                 input_start.strftime('%Y-%m-%d'), 
                 input_end.strftime('%Y-%m-%d'), 

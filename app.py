@@ -6,7 +6,7 @@ from bs4 import BeautifulSoup
 import time
 import plotly.express as px
 
-# 1. 페이지 설정 (반드시 코드 최상단에 위치)
+# 1. 페이지 설정
 st.set_page_config(
     page_title="통합 대시보드",
     page_icon="💰",
@@ -34,21 +34,18 @@ def get_financial_data():
     result = {}
     for key, ticker_symbol in tickers.items():
         try:
-            # yfinance 데이터 가져오기
             df = yf.Ticker(ticker_symbol).history(period="5d")
             if not df.empty:
                 result[key] = df['Close'].iloc[-1]
             else:
                 result[key] = 0.0
-        except Exception as e:
-            # 에러 발생 시 로그를 남기지 않고 0으로 처리 (화면 깨짐 방지)
+        except Exception:
             result[key] = 0.0
     return result
 
-# --- 함수: 국내 금 시세 크롤링 (헤더 추가로 차단 방지) ---
+# --- 함수: 국내 금 시세 크롤링 ---
 def get_krx_gold_price():
     url = "https://finance.naver.com/marketindex/goldDetail.naver"
-    # 봇 차단 방지를 위한 헤더 추가
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
     }
@@ -56,7 +53,6 @@ def get_krx_gold_price():
         response = requests.get(url, headers=headers, timeout=5)
         soup = BeautifulSoup(response.text, 'html.parser')
         
-        # 네이버 금융 구조에 따른 가격 찾기
         price_str = soup.select_one("em.no_up")
         if not price_str: price_str = soup.select_one("em.no_down")
         if not price_str: price_str = soup.select_one("em.no_today")
@@ -64,7 +60,7 @@ def get_krx_gold_price():
         if price_str:
             return float(price_str.get_text(strip=True).replace(',', ''))
         return 0.0
-    except Exception as e:
+    except Exception:
         return 0.0
 
 # --- 함수: 공정표 샘플 데이터 ---
@@ -94,7 +90,6 @@ with tab1:
         macro_data = get_financial_data()
         krx_gold = get_krx_gold_price()
         
-        # 계산 로직
         intl_gold_usd = macro_data.get('Gold_Intl_USD', 0)
         exchange_rate = macro_data.get('Exchange_Rate', 1300)
         
@@ -105,7 +100,6 @@ with tab1:
             intl_gold_krw_g = 0
             spread = 0
 
-        # 금 시세 표시
         st.subheader("Gold Price Check")
         with st.container(border=True):
             c1, c2, c3 = st.columns([1, 1, 1.2])
@@ -117,8 +111,6 @@ with tab1:
             elif spread < -0.5: st.success("국내가 더 저렴합니다 (역프리미엄).")
 
         st.divider()
-        
-        # 시장 지표 표시
         m1, m2, m3, m4 = st.columns(4)
         m1.metric("환율 (USD)", f"{exchange_rate:,.1f}원")
         m2.metric("S&P 500", f"{macro_data.get('SP500', 0):,.0f}")
@@ -133,7 +125,6 @@ with tab2:
     col_b.caption("운송지수는 실물 경기의 선행 지표입니다.")
     
     try:
-        # 차트 데이터가 있으면 그리기
         chart_data = yf.Ticker('^DJT').history(period='1mo')['Close']
         if not chart_data.empty:
             st.line_chart(chart_data)
@@ -142,10 +133,11 @@ with tab2:
     except:
         st.info("차트 데이터를 불러올 수 없습니다.")
 
-# --- [탭 3] 공정표 관리 ---
+# --- [탭 3] 공정표 관리 (검색 기능 추가됨) ---
 with tab3:
     st.subheader("🏗️ 프로젝트 공정 관리 (Gantt Chart)")
     
+    # 1. 파일 업로드
     uploaded_file = st.file_uploader("공정표 엑셀 업로드 (없으면 샘플)", type=['xlsx', 'xls'])
     
     if uploaded_file:
@@ -158,31 +150,51 @@ with tab3:
     else:
         df_schedule = get_sample_schedule()
 
-    # 데이터가 있다면 차트 그리기
+    # 2. 데이터 처리 및 검색 기능
     if not df_schedule.empty:
         try:
-            # 날짜 컬럼 강제 변환 (에러 방지 핵심)
+            # 날짜 변환
             if 'Start' in df_schedule.columns and 'Finish' in df_schedule.columns:
                 df_schedule['Start'] = pd.to_datetime(df_schedule['Start'])
                 df_schedule['Finish'] = pd.to_datetime(df_schedule['Finish'])
                 
-                fig = px.timeline(
-                    df_schedule, 
-                    x_start="Start", 
-                    x_end="Finish", 
-                    y="Task", 
-                    color="Completion",
-                    color_continuous_scale="Blues",
-                    title="Project Schedule"
-                )
-                fig.update_yaxes(autorange="reversed")
-                fig.layout.xaxis.type = 'date'
-                fig.update_layout(height=400)
+                # --- [추가된 부분] 검색 기능 ---
+                st.divider()
+                col_search, _ = st.columns([1, 2])
+                with col_search:
+                    search_query = st.text_input("🔍 공정명 또는 부서 검색", placeholder="예: 전기, 골조, 토목팀")
                 
-                st.plotly_chart(fig, use_container_width=True)
-                
-                with st.expander("데이터 상세 보기"):
-                    st.dataframe(df_schedule, use_container_width=True)
+                # 검색어가 있으면 필터링
+                if search_query:
+                    # Task(공정명) 또는 Department(부서)에 검색어가 포함된 것만 찾음 (대소문자 구분 X)
+                    mask = df_schedule['Task'].astype(str).str.contains(search_query, case=False) | \
+                           df_schedule['Department'].astype(str).str.contains(search_query, case=False)
+                    df_schedule_filtered = df_schedule[mask]
+                else:
+                    df_schedule_filtered = df_schedule
+
+                # --- 차트 그리기 (필터링된 데이터 사용) ---
+                if not df_schedule_filtered.empty:
+                    fig = px.timeline(
+                        df_schedule_filtered, 
+                        x_start="Start", 
+                        x_end="Finish", 
+                        y="Task", 
+                        color="Completion",
+                        color_continuous_scale="Blues",
+                        title=f"Project Schedule ({len(df_schedule_filtered)}건)"
+                    )
+                    fig.update_yaxes(autorange="reversed")
+                    fig.layout.xaxis.type = 'date'
+                    fig.update_layout(height=400)
+                    
+                    st.plotly_chart(fig, use_container_width=True)
+                    
+                    with st.expander("데이터 상세 보기 (클릭)", expanded=True):
+                        st.dataframe(df_schedule_filtered, use_container_width=True)
+                else:
+                    st.warning("🔍 검색 결과가 없습니다.")
+                    
             else:
                 st.error("엑셀 파일에 'Start', 'Finish', 'Task' 컬럼이 포함되어야 합니다.")
         except Exception as e:

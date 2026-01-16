@@ -43,7 +43,7 @@ def get_pms_data():
     return pd.DataFrame(), None
 
 # --- 메인 화면 ---
-st.title("🏗️ 당진 적서리 태양광 PMS (Final Optimized)")
+st.title("🏗️ 당진 적서리 태양광 PMS (Final Corrected)")
 
 df_raw, sheet = get_pms_data()
 if sheet is None:
@@ -63,13 +63,14 @@ with tab1:
             df['종료일'] = pd.to_datetime(df['종료일'])
             df['구분'] = df['구분'].astype(str).str.strip().replace('', '내용 없음').fillna('내용 없음')
             
-            # [순서 고정] 시작일 빠른 순으로 정렬
+            # [수정] 시작일 빠른 순으로 정렬
             df = df.sort_values(by="시작일", ascending=True).reset_index(drop=True)
 
             main_df = df[df['대분류'] != 'MILESTONE'].copy()
             ms_df = df[df['대분류'] == 'MILESTONE'].copy()
             
-            # [핵심] Y축 순서를 역순으로 뒤집어 주입 (상단부터 시간순 배치 위함)
+            # [핵심] Y축 순서를 역순 리스트로 생성 (Plotly는 아래서 위로 쌓기 때문)
+            # 이렇게 해야 리스트의 끝항목(빠른 날짜)이 차트의 맨 위로 갑니다.
             y_order_reversed = main_df['구분'].unique().tolist()[::-1]
 
             # 간트 차트 생성
@@ -99,7 +100,7 @@ with tab1:
                         cliponaxis=False
                     ))
 
-            # 레이아웃 설정 (SyntaxError 해결을 위해 try 블록 내부 유지)
+            # 레이아웃 설정 (autorange=True로 고정)
             fig.update_layout(
                 plot_bgcolor="white",
                 xaxis=dict(side="top", showgrid=True, gridcolor="rgba(220, 220, 220, 0.8)", dtick="M1", tickformat="%Y-%m", ticks="outside"),
@@ -117,7 +118,7 @@ with tab1:
 
         st.divider()
         st.write("📋 상세 데이터 목록")
-        st.dataframe(df.sort_values(by="시작일"), use_container_width=True, hide_index=True)
+        st.dataframe(df, use_container_width=True, hide_index=True)
 
 # [탭 2] 일정 등록
 with tab2:
@@ -126,7 +127,7 @@ with tab2:
         c1, c2 = st.columns(2)
         in_start = c1.date_input("시작일", datetime.date.today())
         in_end = c2.date_input("종료일", datetime.date.today() + datetime.timedelta(days=30))
-        in_dae = st.selectbox("대분류", ["인허가", "설계/조사", "계약", "토목공사", "건축공사", "송전선로", "MILESTONE"])
+        in_dae = st.selectbox("대분류", ["인허가", "설계/조사", "계약", "토목공사", "건축공사", "송전선로", "변전설비", "전기공사", "MILESTONE"])
         in_gubun = st.text_input("구분")
         in_status = st.selectbox("진행상태", ["예정", "진행중", "완료", "지연"])
         in_note = st.text_input("비고")
@@ -134,9 +135,9 @@ with tab2:
             sheet.append_row([str(in_start), str(in_end), in_dae, in_gubun, in_status, in_note])
             st.success("✅ 저장되었습니다!"); time.sleep(1); st.rerun()
 
-# [탭 3] 일정 관리
+# [탭 3] 일정 관리 (수정 및 삭제)
 with tab3:
-    st.subheader("기존 일정 관리")
+    st.subheader("기존 일정 수정 및 삭제")
     if not df_raw.empty:
         df_manage = df_raw.copy()
         df_manage['selection'] = df_manage['구분'].astype(str) + " (" + df_manage['시작일'].astype(str) + ")"
@@ -148,17 +149,17 @@ with tab3:
             e_c1, e_c2 = st.columns(2)
             up_start = e_c1.date_input("시작일 수정", pd.to_datetime(row_data['시작일']).date())
             up_end = e_c2.date_input("종료일 수정", pd.to_datetime(row_data['종료일']).date())
-            up_dae = st.selectbox("대분류 수정", ["인허가", "설계/조사", "계약", "토목공사", "건축공사", "송전선로", "MILESTONE"], 
-                                   index=["인허가", "설계/조사", "계약", "토목공사", "건축공사", "송전선로", "MILESTONE"].index(row_data['대분류']) if row_data['대분류'] in ["인허가", "설계/조사", "계약", "토목공사", "건축공사", "송전선로", "MILESTONE"] else 0)
+            up_dae = st.selectbox("대분류 수정", ["인허가", "설계/조사", "계약", "토목공사", "건축공사", "송전선로", "변전설비", "전기공사", "MILESTONE"], 
+                                   index=["인허가", "설계/조사", "계약", "토목공사", "건축공사", "송전선로", "변전설비", "전기공사", "MILESTONE"].index(row_data['대분류']) if row_data['대분류'] in ["인허가", "설계/조사", "계약", "토목공사", "건축공사", "송전선로", "변전설비", "전기공사", "MILESTONE"] else 0)
             up_gubun = st.text_input("구분 수정", value=row_data['구분'])
             up_status = st.selectbox("진행상태 수정", ["예정", "진행중", "완료", "지연"], 
                                       index=["예정", "진행중", "완료", "지연"].index(row_data['진행상태']) if row_data['진행상태'] in ["예정", "진행중", "완료", "지연"] else 0)
             up_note = st.text_input("비고 수정", value=row_data['비고'])
             
             b1, b2 = st.columns(2)
-            if b1.form_submit_button("수정 🆙", use_container_width=True):
+            if b1.form_submit_button("내용 업데이트 🆙", use_container_width=True):
                 sheet.update(f"A{selected_idx + 2}:F{selected_idx + 2}", [[str(up_start), str(up_end), up_dae, up_gubun, up_status, up_note]])
                 st.success("✅ 수정 완료!"); time.sleep(1); st.rerun()
-            if b2.form_submit_button("삭제 🗑️", use_container_width=True):
+            if b2.form_submit_button("항목 삭제하기 🗑️", use_container_width=True):
                 sheet.delete_rows(selected_idx + 2)
                 st.error("🗑️ 삭제 완료!"); time.sleep(1); st.rerun()

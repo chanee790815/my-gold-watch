@@ -1,5 +1,8 @@
 ## 2026년 1월16일 버전이야
 ## 추가기능
+
+
+
 import streamlit as st
 import pandas as pd
 import datetime
@@ -45,7 +48,7 @@ def get_pms_data():
     return pd.DataFrame(), None
 
 # --- 메인 화면 ---
-st.title("🏗️ 당진 적서리 태양광 PMS (Pro Version)")
+st.title("🏗️ 당진 적서리 태양광 PMS (Rev. 2026-01-16)")
 
 df_raw, sheet = get_pms_data()
 if sheet is None:
@@ -60,31 +63,33 @@ with tab1:
     if not df_raw.empty:
         try:
             df = df_raw.copy()
+            # 날짜 전처리 (시간 제거)
             df['시작일'] = pd.to_datetime(df['시작일']).dt.normalize()
             df['종료일'] = pd.to_datetime(df['종료일']).dt.normalize()
             df['구분'] = df['구분'].astype(str).str.strip().replace('', '내용 없음').fillna('내용 없음')
             
-            # 최신순 정렬
+            # [정렬] 시작일 기준 내림차순 (최신순 상단)
             df = df.sort_values(by="시작일", ascending=False).reset_index(drop=True)
 
             main_df = df[df['대분류'] != 'MILESTONE'].copy()
             ms_df = df[df['대분류'] == 'MILESTONE'].copy()
             
+            # Y축 순서 고정 (역순 리스트 활용)
             y_order_reversed = main_df['구분'].unique().tolist()[::-1]
 
-            # 간트 차트 생성 (text 인자로 진행상태 표시 추가)
+            # 간트 차트 생성
             fig = px.timeline(
                 main_df, 
                 x_start="시작일", 
                 x_end="종료일", 
                 y="구분", 
                 color="진행상태",
-                text="진행상태",  # 막대 안에 상태 표시
+                text="진행상태", # 막대 위에 상태 표시
                 hover_data=["대분류", "비고"],
                 category_orders={"구분": y_order_reversed}
             )
 
-            # 마일스톤 추가
+            # [오류수정] 마일스톤 화살표 추가
             if not ms_df.empty:
                 for _, row in ms_df.iterrows():
                     fig.add_trace(go.Scatter(
@@ -93,16 +98,16 @@ with tab1:
                         mode='markers+text',
                         marker=dict(symbol='arrow-bar-down', size=20, color='black'),
                         text=f"▼ {row['구분']}",
-                        textposition="top center",
+                        textposition="top center", # Scatter 전용 위치값 사용
                         textfont=dict(color="red", size=11, family="Arial Black"),
                         name='MILESTONE',
                         showlegend=False
                     ))
 
-            # [추가 기능] 오늘 날짜 수직선 (Today Line)
-            today = datetime.datetime.now()
-            fig.add_vline(x=today.timestamp() * 1000, line_width=2, line_dash="dash", line_color="red")
-            fig.add_annotation(x=today, y=1, yref="paper", text="Today", showarrow=False, font=dict(color="red"))
+            # [추가기능] 오늘 날짜 표시선
+            today_dt = datetime.datetime.now()
+            fig.add_vline(x=today_dt.timestamp() * 1000, line_width=2, line_dash="dash", line_color="red")
+            fig.add_annotation(x=today_dt, y=1.05, yref="paper", text="TODAY", showarrow=False, font=dict(color="red", size=12))
 
             # 레이아웃 설정
             fig.update_layout(
@@ -110,10 +115,11 @@ with tab1:
                 xaxis=dict(side="top", showgrid=True, gridcolor="#E5E5E5", dtick="M1", tickformat="%Y-%m"),
                 yaxis=dict(autorange=True, showgrid=True, gridcolor="#F0F0F0"),
                 height=800,
-                margin=dict(t=120, l=10, r=10, b=50)
+                margin=dict(t=150, l=10, r=10, b=50)
             )
             
-            fig.update_traces(textposition='outside', marker_line_color="rgb(8,48,107)", marker_line_width=1, opacity=0.8)
+            # 막대 위 텍스트 위치 설정
+            fig.update_traces(textposition='inside', marker_line_color="rgb(8,48,107)", marker_line_width=1, opacity=0.8)
             st.plotly_chart(fig, use_container_width=True)
             
         except Exception as e:
@@ -125,6 +131,10 @@ with tab1:
         display_df['시작일'] = display_df['시작일'].dt.strftime('%Y-%m-%d')
         display_df['종료일'] = display_df['종료일'].dt.strftime('%Y-%m-%d')
         st.dataframe(display_df, use_container_width=True, hide_index=True)
+
+# [탭 2] 일정 등록 및 [탭 3] 수정/삭제 로직은 기존과 동일하게 유지...
+# (기존의 tab2, tab3 코드를 이 아래에 그대로 붙여넣으시면 됩니다)
+
 
 # [탭 2] 및 [탭 3] 로직은 그대로 유지 (생략)
 
@@ -172,3 +182,4 @@ with tab3:
             if b2.form_submit_button("항목 삭제하기 🗑️", use_container_width=True):
                 sheet.delete_rows(selected_idx + 2)
                 st.error("🗑️ 삭제 완료!"); time.sleep(1); st.rerun()
+

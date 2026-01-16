@@ -36,6 +36,7 @@ def get_pms_data():
             sh = client.open('pms_db') 
             worksheet = sh.sheet1
             data = worksheet.get_all_records()
+            # 데이터 로드 즉시 데이터프레임으로 변환
             return pd.DataFrame(data), worksheet
         except Exception as e:
              st.error(f"🚨 데이터 읽기 오류: {e}")
@@ -43,45 +44,97 @@ def get_pms_data():
     return pd.DataFrame(), None
 
 # --- 메인 화면 ---
-st.title("🏗️ 당진 적서리 태양광 PMS (Secure Ver.)")
+st.title("🏗️ 당진 적서리 태양광 PMS (Final Corrected)")
 
-df, sheet = get_pms_data()
+df_raw, sheet = get_pms_data()
 if sheet is None:
     st.warning("데이터베이스 연결 대기 중...")
     st.stop()
 
-# 탭 구성: 수정/삭제 기능을 위한 세 번째 탭 추가
-tab1, tab2, tab3 = st.tabs(["📊 공정표 (Gantt)", "📝 일정 등록", "⚙️ 일정 관리 (수정/삭제)"])
+# 탭 구성: 조회 / 등록 / 수정 및 삭제
+tab1, tab2, tab3 = st.tabs(["📊 공정표 (Gantt)", "📝 일정 등록", "⚙️ 일정 수정 및 삭제"])
 
 # [탭 1] 공정표 조회
 with tab1:
     st.subheader("실시간 공정 현황")
-    if not df.empty:
+    if not df_raw.empty:
         try:
+            df = df_raw.copy()
+            # 날짜 형식 변환
             df['시작일'] = pd.to_datetime(df['시작일'])
             df['종료일'] = pd.to_datetime(df['종료일'])
-            df['구분'] = df['구분'].astype(str).str.strip().replace('', '내용 없음').fillna('내용 없음')
+            # 빈 구분 처리
+            df['구분'] = df['구분'].astype(str).str.strip().replace('', '인허가 진행중').fillna('인허가 진행중')
             
-            # 날짜순 정렬 및 Y축 순서 고정
-            df_plot = df.sort_values(by="시작일", ascending=True)
-            main_df = df_plot[df_plot['대분류'] != 'MILESTONE'].copy()
+            # [핵심 수정] 시작일 오름차순으로 완벽 정렬
+            df = df.sort_values(by="시작일", ascending=True)
+
+            # 마일스톤과 일반 공정 분리
+            main_df = df[df['대분류'] != 'MILESTONE'].copy()
+            ms_df = df[df['대분류'] == 'MILESTONE'].copy()
+            
+            # Y축 순서 리스트 생성 (정렬된 시작일 순서 그대로)
             y_order = main_df['구분'].unique().tolist()
 
-            fig = px.timeline(main_df, x_start="시작일", x_end="종료일", y="구분", color="진행상태",
-                             hover_data=["대분류", "비고"], category_orders={"구분": y_order})
+            # 간트 차트 생성
+            fig = px.timeline(
+                main_df, 
+                x_start="시작일", 
+                x_end="종료일", 
+                y="구분", 
+                color="진행상태",
+                hover_data=["대분류", "비고"],
+                category_orders={"구분": y_order}  # 정렬된 리스트 순서 강제 주입
+            )
+
+            # 상단 마일스톤 화살표 추가
+            if not ms_df.empty:
+                for _, row in ms_df.iterrows():
+                    fig.add_trace(go.Scatter(
+                        x=[row['시작일']],
+                        y=[y_order[0]] if y_order else [0], 
+                        mode='markers+text',
+                        marker=dict(symbol='arrow-bar-down', size=20, color='black'),
+                        text=f"▼ {row['구분']}",
+                        textposition="top center",
+                        textfont=dict(color="red", size=12, family="Arial Black"),
+                        name='MILESTONE',
+                        showlegend=False,
+                        cliponaxis=False
+                    ))
+
+            # 레이아웃 최종 교정 (상단 년월 및 격자선)
+            fig.update_layout(
+                plot_bgcolor="white",
+                xaxis=dict(
+                    side="top",
+                    showgrid=True,
+                    gridcolor="rgba(220, 220, 220, 0.8)",
+                    dtick="M1",
+                    tickformat="%Y-%m",
+                    ticks="outside"
+                ),
+                yaxis=dict(
+                    autorange="reversed", # 시작일이 빠른 항목이 맨 위로 오게 반전
+                    showgrid=True, 
+                    gridcolor="rgba(240, 240, 240, 0.8)"
+                ),
+                height=800,
+                margin=dict(t=150, l=10, r=10, b=50),
+                showlegend=True
+            )
             
-            fig.update_layout(plot_bgcolor="white", height=600, margin=dict(t=100, l=10, r=10, b=10),
-                              xaxis=dict(side="top", showgrid=True, dtick="M1", tickformat="%Y-%m"),
-                              yaxis=dict(autorange="reversed", showgrid=True))
-            
-            fig.update_traces(marker_line_color="rgb(8,48,107)", marker_line_width=1, opacity=0.9)
+            fig.update_traces(marker_line_color="rgb(8,48,107)", marker_line_width=1, opacity=0.8)
             st.plotly_chart(fig, use_container_width=True)
+            
         except Exception as e:
             st.warning(f"차트 생성 중 오류: {e}")
-        st.divider()
-        st.dataframe(df, use_container_width=True, hide_index=True)
 
-# [탭 2] 일정 등록 (기존 기능)
+        st.divider()
+        st.write("📋 상세 데이터 목록")
+        st.dataframe(df.sort_values(by="시작일"), use_container_width=True, hide_index=True)
+
+# [탭 2] 일정 등록
 with tab2:
     st.subheader("새로운 일정 등록")
     with st.form("input_form"):
@@ -94,31 +147,25 @@ with tab2:
         in_note = st.text_input("비고")
         if st.form_submit_button("저장하기 💾", use_container_width=True):
             sheet.append_row([str(in_start), str(in_end), in_dae, in_gubun, in_status, in_note])
-            st.success("✅ 저장되었습니다!"); time.sleep(1); st.rerun()
+            st.success("✅ 일정이 저장되었습니다!"); time.sleep(1); st.rerun()
 
-# [탭 3] 일정 관리 (수정 및 삭제)
+# [탭 3] 일정 수정 및 삭제
 with tab3:
-    st.subheader("기존 일정 수정 및 삭제")
-    if not df.empty:
-        # 수정/삭제할 항목 선택 (항목명 + 시작일로 구분)
-        df_manage = df.copy()
-        df_manage['selection'] = df_manage['구분'] + " (" + df_manage['시작일'].astype(str) + ")"
-        target_item = st.selectbox("수정 또는 삭제할 항목을 선택하세요", df_manage['selection'].tolist())
+    st.subheader("기존 일정 관리")
+    if not df_raw.empty:
+        # 데이터 정렬을 위해 임시 변환
+        df_manage = df_raw.copy()
+        df_manage['selection'] = df_manage['구분'].astype(str) + " (" + df_manage['시작일'].astype(str) + ")"
         
-        # 선택된 항목의 데이터 가져오기
+        target_item = st.selectbox("수정 또는 삭제할 항목 선택", df_manage['selection'].tolist())
         selected_idx = df_manage[df_manage['selection'] == target_item].index[0]
-        row_data = df.iloc[selected_idx]
+        row_data = df_raw.iloc[selected_idx]
         
-        # 수정 폼
         with st.form("edit_form"):
-            st.write(f"📍 대상 행: 구글 시트 {selected_idx + 2}번 행")
+            st.write(f"📍 대상 데이터 위치: 구글 시트 {selected_idx + 2}번 행")
             e_c1, e_c2 = st.columns(2)
-            # 날짜 변환 처리
-            curr_start = pd.to_datetime(row_data['시작일']).date()
-            curr_end = pd.to_datetime(row_data['종료일']).date()
-            
-            up_start = e_c1.date_input("시작일 수정", curr_start)
-            up_end = e_c2.date_input("종료일 수정", curr_end)
+            up_start = e_c1.date_input("시작일 수정", pd.to_datetime(row_data['시작일']).date())
+            up_end = e_c2.date_input("종료일 수정", pd.to_datetime(row_data['종료일']).date())
             
             e_c3, e_c4 = st.columns(2)
             up_dae = e_c3.selectbox("대분류 수정", ["인허가", "설계/조사", "계약", "토목공사", "건축공사", "송전선로", "MILESTONE"], 
@@ -130,20 +177,13 @@ with tab3:
                                       index=["예정", "진행중", "완료", "지연"].index(row_data['진행상태']) if row_data['진행상태'] in ["예정", "진행중", "완료", "지연"] else 0)
             up_note = e_c6.text_input("비고 수정", value=row_data['비고'])
             
-            btn_col1, btn_col2 = st.columns(2)
-            update_submitted = btn_col1.form_submit_button("내용 수정하기 🆙", use_container_width=True)
-            delete_submitted = btn_col2.form_submit_button("항목 삭제하기 🗑️", use_container_width=True)
-            
-            if update_submitted:
-                # 구글 시트 번호는 헤더 포함이라 index + 2
+            b1, b2 = st.columns(2)
+            if b1.form_submit_button("내용 업데이트 🆙", use_container_width=True):
                 cell_range = f"A{selected_idx + 2}:F{selected_idx + 2}"
                 new_values = [[str(up_start), str(up_end), up_dae, up_gubun, up_status, up_note]]
                 sheet.update(cell_range, new_values)
-                st.success("✅ 일정이 수정되었습니다!"); time.sleep(1); st.rerun()
+                st.success("✅ 수정 완료!"); time.sleep(1); st.rerun()
                 
-            if delete_submitted:
-                # 해당 행 삭제
+            if b2.form_submit_button("항목 삭제하기 🗑️", use_container_width=True):
                 sheet.delete_rows(selected_idx + 2)
-                st.error("🗑️ 항목이 삭제되었습니다!"); time.sleep(1); st.rerun()
-    else:
-        st.info("관리할 데이터가 없습니다.")
+                st.error("🗑️ 삭제 완료!"); time.sleep(1); st.rerun()

@@ -103,7 +103,7 @@ with tab1:
             fig.update_layout(
                 plot_bgcolor="white",
                 xaxis=dict(side="top", showgrid=True, gridcolor="#E5E5E5", dtick="M1", tickformat="%Y-%m", ticks="outside"),
-                yaxis=dict(autorange=False, showgrid=True, gridcolor="#F0F0F0"),
+                yaxis=dict(autorange=True, showgrid=True, gridcolor="#F0F0F0"),
                 height=800,
                 margin=dict(t=120, l=10, r=10, b=50),
                 showlegend=True

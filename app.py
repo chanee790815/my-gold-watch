@@ -73,7 +73,7 @@ def get_krx_gold_price():
         return 0.0
 
 # --- 메인 화면 구성 ---
-st.title("💰 Market Dashboard")
+st.title("💰 chan's 금시세 확인하기")
 st.caption(f"Last Update: {time.strftime('%m-%d %H:%M')} (5분 주기)")
 
 if st.button('새로고침 🔄', use_container_width=True): # 버튼도 꽉 차게
@@ -146,3 +146,4 @@ with st.spinner('데이터 수신 중...'):
             st.line_chart(chart_data)
         except:
             st.write("차트 데이터 로딩 실패")
+

@@ -5,197 +5,158 @@ import requests
 from bs4 import BeautifulSoup
 import time
 import plotly.express as px
+import gspread
+from google.oauth2.service_account import Credentials
 
 # 1. 페이지 설정
 st.set_page_config(
-    page_title="통합 대시보드",
+    page_title="통합 PMS & 금융 대시보드",
     page_icon="💰",
     layout="wide",
     initial_sidebar_state="collapsed"
 )
 
-# 2. CSS 스타일 설정
+# 2. 스타일 설정
 st.markdown("""
     <style>
     [data-testid="stMetricValue"] { font-size: 1.5rem !important; }
     button[data-baseweb="tab"] { font-size: 1.1rem !important; font-weight: 600 !important; }
-    .block-container { padding-top: 1rem; padding-left: 1rem; padding-right: 1rem; }
     </style>
     """, unsafe_allow_html=True)
 
-# --- 함수: 금융 데이터 가져오기 ---
+# --- [함수 1] 금융 데이터 ---
 @st.cache_data(ttl=300)
 def get_financial_data():
-    tickers = {
-        'Gold_Intl_USD': 'GC=F', 'Exchange_Rate': 'KRW=X',
-        'SP500': '^GSPC', 'Nasdaq': '^IXIC',
-        'Trans_Avg': '^DJT', 'US_10Y': '^TNX'
-    }
+    tickers = {'Gold_Intl': 'GC=F', 'Ex_Rate': 'KRW=X', 'SP500': '^GSPC', 'Trans': '^DJT'}
     result = {}
-    for key, ticker_symbol in tickers.items():
+    for key, val in tickers.items():
         try:
-            df = yf.Ticker(ticker_symbol).history(period="5d")
-            if not df.empty:
-                result[key] = df['Close'].iloc[-1]
-            else:
-                result[key] = 0.0
-        except Exception:
-            result[key] = 0.0
+            df = yf.Ticker(val).history(period="5d")
+            result[key] = df['Close'].iloc[-1] if not df.empty else 0.0
+        except: result[key] = 0.0
     return result
 
-# --- 함수: 국내 금 시세 크롤링 ---
-def get_krx_gold_price():
-    url = "https://finance.naver.com/marketindex/goldDetail.naver"
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-    }
+# --- [함수 2] 금 시세 크롤링 ---
+def get_krx_gold():
     try:
-        response = requests.get(url, headers=headers, timeout=5)
-        soup = BeautifulSoup(response.text, 'html.parser')
-        
-        price_str = soup.select_one("em.no_up")
-        if not price_str: price_str = soup.select_one("em.no_down")
-        if not price_str: price_str = soup.select_one("em.no_today")
-        
-        if price_str:
-            return float(price_str.get_text(strip=True).replace(',', ''))
-        return 0.0
-    except Exception:
-        return 0.0
+        headers = {'User-Agent': 'Mozilla/5.0'}
+        url = "https://finance.naver.com/marketindex/goldDetail.naver"
+        res = requests.get(url, headers=headers, timeout=5)
+        soup = BeautifulSoup(res.text, 'html.parser')
+        price = soup.select_one("em.no_up") or soup.select_one("em.no_down") or soup.select_one("em.no_today")
+        return float(price.get_text(strip=True).replace(',', '')) if price else 0.0
+    except: return 0.0
 
-# --- 함수: 공정표 샘플 데이터 ---
+# --- [함수 3] 구글 시트 데이터 가져오기 (JWT 에러 해결 로직 포함) ---
+def load_data_from_gsheets():
+    try:
+        # 1. Secrets에서 인증 정보 가져오기
+        if "gcp_service_account" not in st.secrets:
+            st.error("Secrets에 'gcp_service_account' 정보가 없습니다.")
+            return pd.DataFrame()
+
+        # 딕셔너리로 변환
+        secrets_dict = dict(st.secrets["gcp_service_account"])
+
+        # ✅ [핵심 수정] 줄바꿈 문자(\n)가 깨진 것을 강제로 고침
+        if "private_key" in secrets_dict:
+            secrets_dict["private_key"] = secrets_dict["private_key"].replace("\\n", "\n")
+
+        # 2. 인증 및 연결
+        scopes = ["https://www.googleapis.com/auth/spreadsheets"]
+        creds = Credentials.from_service_account_info(secrets_dict, scopes=scopes)
+        client = gspread.authorize(creds)
+
+        # 3. 시트 열기 (Secrets에 저장된 시트 URL 사용)
+        sheet_url = st.secrets["private_gsheets_url"]
+        sh = client.open_by_url(sheet_url)
+        worksheet = sh.get_worksheet(0) # 첫 번째 시트
+
+        # 4. 데이터프레임 변환
+        data = worksheet.get_all_records()
+        df = pd.DataFrame(data)
+        return df
+
+    except Exception as e:
+        st.error(f"구글 시트 연결 실패: {e}")
+        return pd.DataFrame()
+
+# --- [함수 4] 샘플 데이터 (연결 실패 시 대타) ---
 def get_sample_schedule():
-    data = [
-        dict(Task="기초 공사", Start='2024-01-01', Finish='2024-02-28', Department="토목팀", Completion=100),
-        dict(Task="골조 공사", Start='2024-03-01', Finish='2024-05-15', Department="건축팀", Completion=60),
-        dict(Task="전기 배선", Start='2024-04-15', Finish='2024-06-30', Department="전기팀", Completion=30),
-        dict(Task="내부 인테리어", Start='2024-06-01', Finish='2024-08-30', Department="인테리어팀", Completion=0),
-        dict(Task="준공 검사", Start='2024-09-01', Finish='2024-09-15', Department="QM팀", Completion=0)
-    ]
-    return pd.DataFrame(data)
+    return pd.DataFrame([
+        dict(Task="샘플: 기초공사", Start='2024-01-01', Finish='2024-02-28', Department="토목팀", Completion=100),
+        dict(Task="샘플: 골조공사", Start='2024-03-01', Finish='2024-05-15', Department="건축팀", Completion=60)
+    ])
 
-# --- 메인 화면 시작 ---
-st.title("💰 Chan's 통합 대시보드")
+# --- 메인 화면 ---
+st.title("🏗️ 당진 적서리 태양광 PMS & Market Watch")
 st.caption(f"Last Update: {time.strftime('%Y-%m-%d %H:%M')}")
 
-if st.button('데이터 새로고침 🔄', use_container_width=True):
+if st.button('새로고침 🔄', use_container_width=True):
     st.rerun()
 
-# 탭 구성
-tab1, tab2, tab3 = st.tabs(["📊 금/시장 지표", "🚛 경기/물동량", "🏗️ 공정표 관리"])
+tab1, tab2, tab3 = st.tabs(["📊 금/시장 지표", "🚛 경기 동향", "📅 공정 관리(DB)"])
 
-# --- [탭 1] 금/시장 지표 ---
+# --- 탭 1 & 2: 금융 정보 (기존 유지) ---
 with tab1:
-    with st.spinner('데이터를 불러오는 중...'):
-        macro_data = get_financial_data()
-        krx_gold = get_krx_gold_price()
-        
-        intl_gold_usd = macro_data.get('Gold_Intl_USD', 0)
-        exchange_rate = macro_data.get('Exchange_Rate', 1300)
-        
-        if intl_gold_usd > 0 and exchange_rate > 0:
-            intl_gold_krw_g = (intl_gold_usd * exchange_rate) / 31.1034768
-            spread = ((krx_gold - intl_gold_krw_g) / intl_gold_krw_g) * 100 if krx_gold > 0 else 0
-        else:
-            intl_gold_krw_g = 0
-            spread = 0
+    fin_data = get_financial_data()
+    kr_gold = get_krx_gold()
+    intl_gold = fin_data.get('Gold_Intl', 0)
+    rate = fin_data.get('Ex_Rate', 1300)
+    th_price = (intl_gold * rate) / 31.1035 if intl_gold > 0 else 0
+    spread = ((kr_gold - th_price)/th_price)*100 if th_price > 0 else 0
+    
+    col1, col2, col3 = st.columns(3)
+    col1.metric("국내 금값", f"{kr_gold:,.0f}원")
+    col2.metric("국제 이론가", f"{th_price:,.0f}원")
+    col3.metric("괴리율", f"{spread:.2f}%", delta_color="inverse")
 
-        st.subheader("Gold Price Check")
-        with st.container(border=True):
-            c1, c2, c3 = st.columns([1, 1, 1.2])
-            c1.metric("KRX 국내시세 (g)", f"{krx_gold:,.0f}원")
-            c2.metric("국제 이론가 (g)", f"{intl_gold_krw_g:,.0f}원")
-            c3.metric("괴리율 (Spread)", f"{spread:.2f}%", delta=f"{spread:.2f}%", delta_color="inverse")
-            
-            if spread > 1.0: st.warning(f"국내가 {spread:.1f}% 더 비쌉니다.")
-            elif spread < -0.5: st.success("국내가 더 저렴합니다 (역프리미엄).")
-
-        st.divider()
-        m1, m2, m3, m4 = st.columns(4)
-        m1.metric("환율 (USD)", f"{exchange_rate:,.1f}원")
-        m2.metric("S&P 500", f"{macro_data.get('SP500', 0):,.0f}")
-        m3.metric("나스닥", f"{macro_data.get('Nasdaq', 0):,.0f}")
-        m4.metric("미국채 10년", f"{macro_data.get('US_10Y', 0):.2f}%")
-
-# --- [탭 2] 경기 지표 ---
 with tab2:
-    st.subheader("Transport Index (경기 선행)")
-    col_a, col_b = st.columns(2)
-    col_a.metric("다우 운송지수", f"{macro_data.get('Trans_Avg', 0):,.0f}")
-    col_b.caption("운송지수는 실물 경기의 선행 지표입니다.")
-    
+    st.metric("다우 운송지수", f"{fin_data.get('Trans', 0):,.0f}")
     try:
-        chart_data = yf.Ticker('^DJT').history(period='1mo')['Close']
-        if not chart_data.empty:
-            st.line_chart(chart_data)
-        else:
-            st.info("차트 데이터를 불러올 수 없습니다.")
-    except:
-        st.info("차트 데이터를 불러올 수 없습니다.")
+        st.line_chart(yf.Ticker('^DJT').history(period='1mo')['Close'])
+    except: st.write("차트 로딩 실패")
 
-# --- [탭 3] 공정표 관리 (검색 기능 추가됨) ---
+# --- 탭 3: 구글 시트 공정표 (오류 수정 적용됨) ---
 with tab3:
-    st.subheader("🏗️ 프로젝트 공정 관리 (Gantt Chart)")
+    st.subheader("실시간 공정 현황 (Google Sheets)")
     
-    # 1. 파일 업로드
-    uploaded_file = st.file_uploader("공정표 엑셀 업로드 (없으면 샘플)", type=['xlsx', 'xls'])
+    # DB 연결 시도
+    with st.spinner("구글 시트 데이터 불러오는 중..."):
+        df_schedule = load_data_from_gsheets()
     
-    if uploaded_file:
-        try:
-            df_schedule = pd.read_excel(uploaded_file)
-            st.success(f"📂 {uploaded_file.name} 로드 성공")
-        except Exception as e:
-            st.error(f"파일을 읽는 중 에러가 발생했습니다: {e}")
-            df_schedule = get_sample_schedule()
-    else:
+    # 실패하면 샘플 데이터 사용
+    if df_schedule.empty:
+        st.warning("⚠️ 구글 시트 연결에 실패하여 샘플 데이터를 보여줍니다. (Secrets 설정을 확인하세요)")
         df_schedule = get_sample_schedule()
+    else:
+        st.success("✅ 구글 DB 연결 성공!")
 
-    # 2. 데이터 처리 및 검색 기능
-    if not df_schedule.empty:
-        try:
-            # 날짜 변환
-            if 'Start' in df_schedule.columns and 'Finish' in df_schedule.columns:
-                df_schedule['Start'] = pd.to_datetime(df_schedule['Start'])
-                df_schedule['Finish'] = pd.to_datetime(df_schedule['Finish'])
-                
-                # --- [추가된 부분] 검색 기능 ---
-                st.divider()
-                col_search, _ = st.columns([1, 2])
-                with col_search:
-                    search_query = st.text_input("🔍 공정명 또는 부서 검색", placeholder="예: 전기, 골조, 토목팀")
-                
-                # 검색어가 있으면 필터링
-                if search_query:
-                    # Task(공정명) 또는 Department(부서)에 검색어가 포함된 것만 찾음 (대소문자 구분 X)
-                    mask = df_schedule['Task'].astype(str).str.contains(search_query, case=False) | \
-                           df_schedule['Department'].astype(str).str.contains(search_query, case=False)
-                    df_schedule_filtered = df_schedule[mask]
-                else:
-                    df_schedule_filtered = df_schedule
-
-                # --- 차트 그리기 (필터링된 데이터 사용) ---
-                if not df_schedule_filtered.empty:
-                    fig = px.timeline(
-                        df_schedule_filtered, 
-                        x_start="Start", 
-                        x_end="Finish", 
-                        y="Task", 
-                        color="Completion",
-                        color_continuous_scale="Blues",
-                        title=f"Project Schedule ({len(df_schedule_filtered)}건)"
-                    )
-                    fig.update_yaxes(autorange="reversed")
-                    fig.layout.xaxis.type = 'date'
-                    fig.update_layout(height=400)
-                    
-                    st.plotly_chart(fig, use_container_width=True)
-                    
-                    with st.expander("데이터 상세 보기 (클릭)", expanded=True):
-                        st.dataframe(df_schedule_filtered, use_container_width=True)
-                else:
-                    st.warning("🔍 검색 결과가 없습니다.")
-                    
+    # 데이터 전처리 및 차트
+    try:
+        if 'Start' in df_schedule.columns and 'Finish' in df_schedule.columns:
+            df_schedule['Start'] = pd.to_datetime(df_schedule['Start'])
+            df_schedule['Finish'] = pd.to_datetime(df_schedule['Finish'])
+            
+            # 검색 기능
+            query = st.text_input("검색 (공정명/부서)", placeholder="예: 전기")
+            if query:
+                mask = df_schedule.astype(str).apply(lambda x: x.str.contains(query, case=False)).any(axis=1)
+                df_view = df_schedule[mask]
             else:
-                st.error("엑셀 파일에 'Start', 'Finish', 'Task' 컬럼이 포함되어야 합니다.")
-        except Exception as e:
-            st.error(f"차트 생성 중 에러 발생: {e}")
+                df_view = df_schedule
+            
+            # 간트 차트
+            fig = px.timeline(df_view, x_start="Start", x_end="Finish", y="Task", 
+                              color="Completion", title="Project Schedule", height=400)
+            fig.update_yaxes(autorange="reversed")
+            st.plotly_chart(fig, use_container_width=True)
+            
+            with st.expander("원본 데이터 확인"):
+                st.dataframe(df_view)
+        else:
+            st.error("데이터에 'Start', 'Finish', 'Task' 컬럼이 꼭 있어야 합니다.")
+            st.dataframe(df_schedule)
+            
+    except Exception as e:
+        st.error(f"차트 그리기 오류: {e}")

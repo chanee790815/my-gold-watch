@@ -114,7 +114,7 @@ with tab1:
                     ticks="outside"
                 ),
                 yaxis=dict(
-                    autorange="reversed", # 리스트의 첫 항목(빠른 날짜)이 맨 위로 오게 함
+                    autorange="True", # 리스트의 첫 항목(빠른 날짜)이 맨 위로 오게 함
                     showgrid=True, 
                     gridcolor="rgba(240, 240, 240, 0.8)"
                 ),
@@ -189,3 +189,4 @@ with tab3:
             if b2.form_submit_button("항목 삭제하기 🗑️", use_container_width=True):
                 sheet.delete_rows(selected_idx + 2)
                 st.error("🗑️ 삭제 완료!"); time.sleep(1); st.rerun()
+

@@ -2,12 +2,12 @@
 ## 수정 일자: 2026-01-18
 ## 버전: Rev. 2026-01-18.7
 ## 업데이트 요약:
-## 1. 모바일 터치 오동작 방지: 
-##    - 차트 확대/축소(Zoom) 기능을 비활성화(scrollZoom=False)하여 터치 시 화면이 백색으로 날아가는 현상 차단
-##    - 불필요한 도구 모음(Mode Bar)을 숨겨 실수로 버튼을 누르는 일 방지
-## 2. 정렬 로직 고정: 최신 공정 상단 배치 (내림차순 정렬)
-## 3. 모바일 가독성: 가변 높이 및 폰트 최적화 유지
-## 4. 기존 기능 통합: D-Day 대시보드, 진행률 표시, 관리 탭 등 전체 기능 포함
+## 1. 모바일 가독성 및 터치 최적화:
+##    - [가독성] 범례(Legend)를 하단으로 이동하여 좁은 화면에서도 차트 가로 폭 확보
+##    - [가독성] 차트 높이(Height)를 데이터 개수에 비례해 늘려주어 세로 스크롤 보기 편하게 조정
+##    - [터치] 차트 확대(Zoom) 기능을 비활성화하여 터치 실수로 화면이 백색으로 변하는 현상 방지
+## 2. 정렬 로직 확정: [탭 1] 시작일 기준 내림차순(False) 정렬 (최신 공정이 상단 배치)
+## 3. 기존 기능 유지: D-Day 대시보드, 진행률 표시, 관리 기능 등
 
 import streamlit as st
 import pandas as pd
@@ -15,7 +15,6 @@ import datetime
 import gspread
 from google.oauth2.service_account import Credentials
 import time
-import json
 import plotly.express as px
 import plotly.graph_objects as go
 
@@ -94,58 +93,66 @@ if not ms_only.empty:
 # --- 탭 구성 ---
 tab1, tab2, tab3 = st.tabs(["📊 통합 공정표", "📝 일정 등록", "⚙️ 관리 및 수정"])
 
-# [탭 1] 공정표 조회 (터치 오동작 방지 적용)
+# [탭 1] 공정표 조회 (모바일 최적화 및 정렬 수정 반영)
 with tab1:
     if not df.empty:
         try:
-            # 시작일 기준 내림차순 정렬 (최신 상단)
+            # 1. [요청반영] 시작일 기준 내림차순 정렬 (최신 공정이 상단 배치)
             df_sorted = df.sort_values(by="시작일", ascending=False).reset_index(drop=True)
             main_df = df_sorted[df_sorted['대분류'] != 'MILESTONE'].copy()
+            
+            # Y축 순서 고정 (Plotly는 리스트 역순이어야 위에서부터 그려짐)
             y_order = main_df['구분'].unique().tolist()[::-1]
             
             main_df['상태표시'] = main_df.apply(lambda x: f"{x['진행상태']} ({x['진행률']}%)", axis=1)
 
+            # 간트 차트 생성
             fig = px.timeline(
                 main_df, x_start="시작일", x_end="종료일", y="구분", color="진행상태",
                 text="상태표시", hover_data={"대분류":True, "담당자":True, "진행률":True, "비고":True},
                 category_orders={"구분": y_order}
             )
 
+            # 오늘 날짜 수직선
             today_dt = datetime.datetime.now()
             fig.add_vline(x=today_dt.timestamp() * 1000, line_width=2, line_dash="dash", line_color="red")
 
-            # 모바일 최적화 높이
-            chart_height = max(500, len(main_df) * 35) 
+            # 2. [모바일 최적화] 차트 높이 동적 계산 (공정 개수 * 40px)
+            # 데이터가 많아지면 스크롤이 길어지더라도 글자가 겹치지 않게 함
+            dynamic_height = max(500, len(main_df) * 40)
 
             fig.update_layout(
                 plot_bgcolor="white",
                 xaxis=dict(
                     side="top", showgrid=True, gridcolor="#E5E5E5", 
                     dtick="M1", tickformat="%y-%m", ticks="outside", 
-                    tickfont=dict(size=10)
+                    tickfont=dict(size=10) # 날짜 폰트 크기 조정
                 ),
                 yaxis=dict(
                     autorange=True, showgrid=True, gridcolor="#F0F0F0", 
                     title="", 
-                    tickfont=dict(size=10),
+                    tickfont=dict(size=11), # 공정명 폰트 크기
                     automargin=True
                 ),
-                height=chart_height,
-                margin=dict(t=80, l=10, r=10, b=20),
-                legend=dict(orientation="h", yanchor="bottom", y=-0.1, xanchor="right", x=1)
+                height=dynamic_height, # 계산된 높이 적용
+                margin=dict(t=80, l=10, r=10, b=50), # 여백 최소화
+                legend=dict(
+                    orientation="h",  # 범례를 가로로 배치
+                    yanchor="bottom", y=-0.05,  # 차트 하단에 위치
+                    xanchor="center", x=0.5
+                )
             )
-            fig.update_yaxes(ticksuffix=" ")
-            fig.update_traces(textposition='inside', textfont_size=9, selector=dict(type='bar'))
+            fig.update_yaxes(ticksuffix="  ")
+            fig.update_traces(textposition='inside', textfont_size=10, selector=dict(type='bar'))
             
-            # [수정됨] 모바일 터치 오동작 방지 설정 (Zoom 비활성화)
+            # 3. [터치 오동작 방지] Zoom 비활성화 및 반응형 설정
             st.plotly_chart(
                 fig, 
                 use_container_width=True, 
                 config={
-                    'responsive': True, 
-                    'scrollZoom': False,      # 스크롤/터치로 인한 확대 방지
-                    'displayModeBar': False,  # 상단 도구모음 숨김 (실수 클릭 방지)
-                    'staticPlot': False       # 툴팁(상세정보) 기능은 유지
+                    'responsive': True,       # 화면 크기에 맞게 리사이징
+                    'scrollZoom': False,      # 터치 스크롤 시 차트 확대 방지 (중요!)
+                    'displayModeBar': False   # 상단 메뉴바 숨김
                 }
             )
             

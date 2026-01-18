@@ -275,4 +275,4 @@ with tab3:
         df_display = df_manage.copy()
         df_display['시작일'] = pd.to_datetime(df_display['시작일']).dt.strftime('%Y-%m-%d')
         df_display['종료일'] = pd.to_datetime(df_display['종료일']).dt.strftime('%Y-%m-%d')
-        st.dataframe(df_display.sort_values(by="시작일"), use_container_width=True, hide_index=True)ㅍ
+        st.dataframe(df_display.sort_values(by="시작일"), use_container_width=True, hide_index=True)

@@ -1,14 +1,14 @@
 ## [PMS Revision History]
 ## 수정 일자: 2026-01-18
-## 버전: Rev. 2026-01-18.12
+## 버전: Rev. 2026-01-18.14
 ## 업데이트 요약:
-## 1. 차트 확대/축소(Zoom) 원천 차단:
-##    - 터치 실수로 날짜가 '일/시간' 단위로 쪼개지는 현상 방지
-##    - X축 눈금 간격(dtick)을 "M1"(1개월)로 강제 고정하여 항상 '26-01' 형태 유지
-## 2. 스크롤 안전장치 강화:
-##    - 이동(Pan)만 가능하도록 dragmode를 'pan'으로 고정
-##    - 프로젝트 기간 앞뒤 30일까지만 이동 가능하도록 '가드레일(min/max allowed)' 타이트하게 설정
-## 3. 기존 기능 통합: 엑셀식 틀 고정, 모바일 축소 모드, D-Day, 최신순 정렬 등
+## 1. PC 클릭 오동작 방지(Click-Safe Mode):
+##    - [범례 잠금] 하단 범례(Legend)를 클릭해도 데이터가 숨겨지지 않도록 설정 (itemclick=False)
+##    - [더블클릭 방어] 차트 바탕 더블클릭 시 엉뚱한 곳으로 튀는 현상 방지
+##    - [도구모음 제거] 상단 ModeBar의 불필요한 버튼(Zoom, Select, Lasso)을 모두 제거하여 '이동'만 허용
+## 2. 엑셀식 틀 고정 안정화:
+##    - 드래그(Pan) 외의 다른 동작이 개입하지 못하도록 강제 설정
+## 3. 기존 기능 통합: 리셋 버튼, 모바일 축소, 스크롤 제한 등
 
 import streamlit as st
 import pandas as pd
@@ -55,7 +55,7 @@ def get_pms_data():
     return pd.DataFrame(), None
 
 # --- 메인 화면 상단 ---
-st.title("🏗️ 당진 적서리 태양광 PMS (Rev. 2026-01-18.12)")
+st.title("🏗️ 당진 적서리 태양광 PMS (Rev. 2026-01-18.14)")
 
 df_raw, worksheet = get_pms_data()
 if worksheet is None:
@@ -82,12 +82,12 @@ if '담당자' not in df.columns: df['담당자'] = "미정"
 if "전체" not in selected_cat:
     df = df[df['대분류'].isin(selected_cat)]
 
-# [안전장치] 이동 범위 제한 (프로젝트 기간 + 30일 여유)
+# [안전장치] 이동 범위 제한
 if not df.empty:
     min_date = df['시작일'].min()
     max_date = df['종료일'].max()
-    limit_min = min_date - datetime.timedelta(days=30)
-    limit_max = max_date + datetime.timedelta(days=30)
+    limit_min = min_date - datetime.timedelta(days=60)
+    limit_max = max_date + datetime.timedelta(days=60)
 else:
     limit_min = datetime.datetime.now()
     limit_max = datetime.datetime.now()
@@ -111,14 +111,19 @@ tab1, tab2, tab3 = st.tabs(["📊 통합 공정표", "📝 일정 등록", "⚙�
 
 # [탭 1] 공정표 조회
 with tab1:
-    view_option = st.radio(
-        "👁️ 보기 모드 선택", 
-        ["🪟 엑셀식 틀 고정 (추천)", "📄 전체 길게 보기 (스크롤)"], 
-        horizontal=True,
-        label_visibility="collapsed"
-    )
-    
-    st.caption(f"현재 모드: **{view_option}** - {'상하좌우 드래그로 이동 (확대/축소 잠금됨)' if '틀 고정' in view_option else '브라우저 스크롤 사용'}")
+    col_ctrl1, col_ctrl2 = st.columns([2, 1])
+    with col_ctrl1:
+        view_option = st.radio(
+            "👁️ 보기 모드", 
+            ["🪟 엑셀식 틀 고정 (추천)", "📄 전체 길게 보기 (스크롤)"], 
+            horizontal=True,
+            label_visibility="collapsed"
+        )
+    with col_ctrl2:
+        if st.button("🔄 차트 위치/비율 초기화", use_container_width=True):
+            st.rerun()
+
+    st.caption(f"현재 모드: **{view_option}** - 차트 내부를 드래그하여 이동하세요. (클릭해도 데이터가 숨겨지지 않습니다)")
 
     if not df.empty:
         try:
@@ -159,15 +164,12 @@ with tab1:
                 plot_bgcolor="white",
                 xaxis=dict(
                     side="top", showgrid=True, gridcolor="#E5E5E5", 
-                    # [핵심] 줌 잠금 장치
-                    dtick="M1",              # 1개월 단위 강제 고정 (확대해도 쪼개지지 않음)
-                    tickformat="%y-%m",      # 날짜 형식 고정
-                    ticks="outside", 
+                    dtick="M1", tickformat="%y-%m", ticks="outside", 
                     tickfont=dict(size=10),
-                    fixedrange=False,        # 이동(Pan)은 허용
-                    range=[limit_min, limit_max], # 초기 범위
-                    minallowed=limit_min,    # 좌측 이동 한계
-                    maxallowed=limit_max     # 우측 이동 한계
+                    fixedrange=False,
+                    range=[limit_min, limit_max],
+                    minallowed=limit_min,
+                    maxallowed=limit_max
                 ),
                 yaxis=dict(
                     autorange=True if range_y is None else False,
@@ -179,24 +181,32 @@ with tab1:
                     tickmode='array',
                     tickvals=y_order,
                     ticktext=y_labels_display,
-                    fixedrange=False # 이동 허용
+                    fixedrange=False
                 ),
                 height=final_height,
                 margin=dict(t=80, l=10, r=10, b=20),
-                legend=dict(orientation="h", yanchor="bottom", y=-0.1, xanchor="center", x=0.5),
-                dragmode="pan" # 기본 동작을 '이동'으로 고정
+                # [핵심] 범례 클릭 잠금 (itemclick=False)
+                legend=dict(
+                    orientation="h", yanchor="bottom", y=-0.1, xanchor="center", x=0.5,
+                    itemclick=False,        # 클릭해도 숨겨지지 않음
+                    itemdoubleclick=False   # 더블클릭해도 숨겨지지 않음
+                ),
+                dragmode="pan",
+                clickmode="event" # 클릭 시 선택(Highlight) 효과 방지
             )
             fig.update_yaxes(ticksuffix=" ")
             fig.update_traces(textposition='inside', textfont_size=10, selector=dict(type='bar'))
             
+            # [핵심] 오동작 방지 Config
             st.plotly_chart(
                 fig, 
                 use_container_width=True, 
                 config={
                     'responsive': True, 
-                    'scrollZoom': False,        # 휠/핀치 줌 비활성화
-                    'doubleClick': 'reset',     # 더블클릭 시 초기 상태로 복구
-                    'displayModeBar': False     # 메뉴바 숨김
+                    'scrollZoom': False,
+                    'doubleClick': 'reset',
+                    'displayModeBar': False, # 상단 도구모음 제거 (실수 방지)
+                    'modeBarButtonsToRemove': ['zoom', 'pan', 'select', 'lasso2d', 'zoomIn2d', 'zoomOut2d', 'autoScale2d', 'resetScale2d']
                 }
             )
             
@@ -265,4 +275,4 @@ with tab3:
         df_display = df_manage.copy()
         df_display['시작일'] = pd.to_datetime(df_display['시작일']).dt.strftime('%Y-%m-%d')
         df_display['종료일'] = pd.to_datetime(df_display['종료일']).dt.strftime('%Y-%m-%d')
-        st.dataframe(df_display.sort_values(by="시작일"), use_container_width=True, hide_index=True)
+        st.dataframe(df_display.sort_values(by="시작일"), use_container_width=True, hide_index=True)ㅍ

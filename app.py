@@ -100,7 +100,7 @@ tab1, tab2, tab3 = st.tabs(["📊 통합 공정표", "📝 일정 등록", "⚙�
 with tab1:
     if not df.empty:
         try:
-            df_sorted = df.sort_values(by="시작일", ascending=True).reset_index(drop=True)
+            df_sorted = df.sort_values(by="시작일", ascending=False).reset_index(drop=True)
             main_df = df_sorted[df_sorted['대분류'] != 'MILESTONE'].copy()
             y_order = main_df['구분'].unique().tolist()[::-1]
             
@@ -213,3 +213,4 @@ with tab3:
         st.dataframe(df_display.sort_values(by="시작일"), use_container_width=True, hide_index=True)
     else:
         st.info("현재 등록된 공정이 없습니다.")
+

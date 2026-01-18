@@ -1,12 +1,13 @@
 ## [PMS Revision History]
 ## 수정 일자: 2026-01-18
-## 버전: Rev. 2026-01-18.5
+## 버전: Rev. 2026-01-18.6
 ## 업데이트 요약:
-## 1. 모바일 최적화(반응형 가독성 개선): 
-##    - 화면 폭에 따라 폰트 크기, 마진, 차트 높이 자동 조절 로직 추가
-##    - 모바일 접속 시 공정명이 겹치지 않도록 레이아웃 설정 보완
-## 2. 기존 기능 유지: D-Day 대시보드, 진행률 시각화, 왼쪽 정렬, 26-01 날짜 형식 등 모든 기능 포함
-## 3. 관리 기능: [탭 3] 하단 실시간 데이터 목록 및 수정/삭제 기능 유지
+## 1. 정렬 로직 고정: [탭 1] 공정표 조회 시 시작일 기준 '내림차순(False)' 정렬 적용 (최신 공정 상단 배치)
+## 2. 모바일 최적화 유지: 
+##    - 화면 폭에 따른 가변 높이(chart_height) 설정
+##    - 폰트 크기 및 범례 위치 최적화로 모바일 가독성 확보
+## 3. 기존 기능 통합: D-Day 대시보드, 진행률 시각화, 왼쪽 정렬, 26-01 날짜 형식 등
+## 4. 데이터 관리: [탭 3] 하단 실시간 데이터 목록 및 수정/삭제 기능 유지
 
 import streamlit as st
 import pandas as pd
@@ -53,7 +54,7 @@ def get_pms_data():
     return pd.DataFrame(), None
 
 # --- 메인 화면 상단 ---
-st.title("🏗️ 당진 적서리 태양광 PMS (Rev. 2026-01-18.5)")
+st.title("🏗️ 당진 적서리 태양광 PMS (Rev. 2026-01-18.6)")
 
 df_raw, worksheet = get_pms_data()
 if worksheet is None:
@@ -76,7 +77,7 @@ if '담당자' not in df.columns: df['담당자'] = "미정"
 if "전체" not in selected_cat:
     df = df[df['대분류'].isin(selected_cat)]
 
-# --- D-Day 카운터 (상단 대시보드) ---
+# --- D-Day 카운터 ---
 st.subheader("🚩 핵심 마일스톤 현황")
 ms_only = df_raw[df_raw['대분류'] == 'MILESTONE'].copy()
 if not ms_only.empty:
@@ -93,16 +94,20 @@ if not ms_only.empty:
 # --- 탭 구성 ---
 tab1, tab2, tab3 = st.tabs(["📊 통합 공정표", "📝 일정 등록", "⚙️ 관리 및 수정"])
 
-# [탭 1] 공정표 조회 (모바일 가독성 강화 버전)
+# [탭 1] 공정표 조회 (정렬 로직 수정 적용)
 with tab1:
     if not df.empty:
         try:
-            df_sorted = df.sort_values(by="시작일", ascending=True).reset_index(drop=True)
+            # [사용자 요청 반영] 시작일 기준 내림차순 정렬 (최신순 상단)
+            df_sorted = df.sort_values(by="시작일", ascending=False).reset_index(drop=True)
             main_df = df_sorted[df_sorted['대분류'] != 'MILESTONE'].copy()
+            
+            # Y축 순서 고정 (Plotly 특성상 리스트를 뒤집어서 주입)
             y_order = main_df['구분'].unique().tolist()[::-1]
+            
             main_df['상태표시'] = main_df.apply(lambda x: f"{x['진행상태']} ({x['진행률']}%)", axis=1)
 
-            # 1. 간트 차트 생성
+            # 간트 차트 생성
             fig = px.timeline(
                 main_df, x_start="시작일", x_end="종료일", y="구분", color="진행상태",
                 text="상태표시", hover_data={"대분류":True, "담당자":True, "진행률":True, "비고":True},
@@ -113,46 +118,26 @@ with tab1:
             today_dt = datetime.datetime.now()
             fig.add_vline(x=today_dt.timestamp() * 1000, line_width=2, line_dash="dash", line_color="red")
 
-            # 2. [모바일 최적화 핵심 설정]
-            # 화면 크기에 따라 가변적으로 변하는 높이 계산 (공정 개수 기준)
+            # 가변 높이 및 반응형 설정
             chart_height = max(500, len(main_df) * 35) 
 
             fig.update_layout(
                 plot_bgcolor="white",
-                xaxis=dict(
-                    side="top", showgrid=True, gridcolor="#E5E5E5", 
-                    dtick="M1", tickformat="%y-%m", ticks="outside",
-                    tickfont=dict(size=10) # 날짜 폰트 살짝 축소
-                ),
-                yaxis=dict(
-                    autorange=True, showgrid=True, gridcolor="#F0F0F0", 
-                    title="", 
-                    tickfont=dict(size=10), # 공정명 폰트 축소 (모바일 대응)
-                    automargin=True
-                ),
-                height=chart_height, # 고정 높이가 아닌 데이터 양에 따른 가변 높이
+                xaxis=dict(side="top", showgrid=True, gridcolor="#E5E5E5", dtick="M1", tickformat="%y-%m", ticks="outside", tickfont=dict(size=10)),
+                yaxis=dict(autorange=True, showgrid=True, gridcolor="#F0F0F0", title="", tickfont=dict(size=10), automargin=True),
+                height=chart_height,
                 margin=dict(t=80, l=10, r=10, b=20),
-                legend=dict(
-                    orientation="h", # 범례를 하단 가로 방향으로 배치 (공간 절약)
-                    yanchor="bottom", y=-0.1, xanchor="right", x=1
-                )
+                legend=dict(orientation="h", yanchor="bottom", y=-0.1, xanchor="right", x=1)
             )
             fig.update_yaxes(ticksuffix=" ")
-            fig.update_traces(
-                textposition='inside', 
-                textfont_size=9, # 막대 내부 글자 크기 축소
-                selector=dict(type='bar')
-            )
+            fig.update_traces(textposition='inside', textfont_size=9, selector=dict(type='bar'))
             
-            # config 설정으로 반응형 모드 강제 활성화
             st.plotly_chart(fig, use_container_width=True, config={'responsive': True})
             
         except Exception as e:
             st.error(f"차트 생성 중 오류: {e}")
 
-# [탭 2] 및 [탭 3] 로직은 이전 버전(Rev. 18.4)과 동일하게 유지...
-# (지면상 하단은 생략하나 전체 소스 적용 시 포함됨)
-
+# [탭 2] 일정 등록 (기존 동일)
 with tab2:
     st.subheader("📝 신규 공정 추가")
     with st.form("input_form"):
@@ -171,6 +156,7 @@ with tab2:
             worksheet.append_row(sheet_data)
             st.success("✅ 저장이 완료되었습니다!"); time.sleep(1); st.rerun()
 
+# [탭 3] 관리 및 수정 + 데이터 목록 (기존 동일)
 with tab3:
     st.subheader("⚙️ 기존 공정 수정 및 삭제")
     df_manage, _ = get_pms_data()

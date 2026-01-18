@@ -3,9 +3,9 @@
 ## 버전: Rev. 2026-01-18.6
 ## 업데이트 요약:
 ## 1. 정렬 로직 고정: [탭 1] 공정표 조회 시 시작일 기준 '내림차순(False)' 정렬 적용 (최신 공정 상단 배치)
-## 2. 모바일 최적화 유지: 
-##    - 화면 폭에 따른 가변 높이(chart_height) 설정
-##    - 폰트 크기 및 범례 위치 최적화로 모바일 가독성 확보
+## 2. 모바일 최적화: 
+##    - 화면 폭에 따른 가변 높이(chart_height) 설정으로 세로 스크롤 확보
+##    - 폰트 크기(10px) 및 범례 위치(하단) 최적화로 좁은 화면 가독성 증대
 ## 3. 기존 기능 통합: D-Day 대시보드, 진행률 시각화, 왼쪽 정렬, 26-01 날짜 형식 등
 ## 4. 데이터 관리: [탭 3] 하단 실시간 데이터 목록 및 수정/삭제 기능 유지
 
@@ -94,15 +94,15 @@ if not ms_only.empty:
 # --- 탭 구성 ---
 tab1, tab2, tab3 = st.tabs(["📊 통합 공정표", "📝 일정 등록", "⚙️ 관리 및 수정"])
 
-# [탭 1] 공정표 조회 (정렬 로직 수정 적용)
+# [탭 1] 공정표 조회 (정렬 로직 수정 및 모바일 최적화)
 with tab1:
     if not df.empty:
         try:
-            # [사용자 요청 반영] 시작일 기준 내림차순 정렬 (최신순 상단)
+            # [수정됨] 시작일 기준 내림차순 정렬 (최신 공정이 상단에 오도록)
             df_sorted = df.sort_values(by="시작일", ascending=False).reset_index(drop=True)
             main_df = df_sorted[df_sorted['대분류'] != 'MILESTONE'].copy()
             
-            # Y축 순서 고정 (Plotly 특성상 리스트를 뒤집어서 주입)
+            # Y축 순서 고정 (Plotly 특성상 리스트를 뒤집어서 주입해야 화면 위부터 그려짐)
             y_order = main_df['구분'].unique().tolist()[::-1]
             
             main_df['상태표시'] = main_df.apply(lambda x: f"{x['진행상태']} ({x['진행률']}%)", axis=1)
@@ -118,16 +118,25 @@ with tab1:
             today_dt = datetime.datetime.now()
             fig.add_vline(x=today_dt.timestamp() * 1000, line_width=2, line_dash="dash", line_color="red")
 
-            # 가변 높이 및 반응형 설정
+            # [모바일 최적화] 데이터 양에 따른 가변 높이 계산
             chart_height = max(500, len(main_df) * 35) 
 
             fig.update_layout(
                 plot_bgcolor="white",
-                xaxis=dict(side="top", showgrid=True, gridcolor="#E5E5E5", dtick="M1", tickformat="%y-%m", ticks="outside", tickfont=dict(size=10)),
-                yaxis=dict(autorange=True, showgrid=True, gridcolor="#F0F0F0", title="", tickfont=dict(size=10), automargin=True),
-                height=chart_height,
+                xaxis=dict(
+                    side="top", showgrid=True, gridcolor="#E5E5E5", 
+                    dtick="M1", tickformat="%y-%m", ticks="outside", 
+                    tickfont=dict(size=10) # 폰트 크기 최적화
+                ),
+                yaxis=dict(
+                    autorange=True, showgrid=True, gridcolor="#F0F0F0", 
+                    title="", 
+                    tickfont=dict(size=10), # 공정명 폰트 크기 최적화
+                    automargin=True
+                ),
+                height=chart_height, # 가변 높이 적용
                 margin=dict(t=80, l=10, r=10, b=20),
-                legend=dict(orientation="h", yanchor="bottom", y=-0.1, xanchor="right", x=1)
+                legend=dict(orientation="h", yanchor="bottom", y=-0.1, xanchor="right", x=1) # 범례 하단 이동
             )
             fig.update_yaxes(ticksuffix=" ")
             fig.update_traces(textposition='inside', textfont_size=9, selector=dict(type='bar'))
@@ -137,7 +146,7 @@ with tab1:
         except Exception as e:
             st.error(f"차트 생성 중 오류: {e}")
 
-# [탭 2] 일정 등록 (기존 동일)
+# [탭 2] 일정 등록
 with tab2:
     st.subheader("📝 신규 공정 추가")
     with st.form("input_form"):
@@ -156,7 +165,7 @@ with tab2:
             worksheet.append_row(sheet_data)
             st.success("✅ 저장이 완료되었습니다!"); time.sleep(1); st.rerun()
 
-# [탭 3] 관리 및 수정 + 데이터 목록 (기존 동일)
+# [탭 3] 관리 및 수정
 with tab3:
     st.subheader("⚙️ 기존 공정 수정 및 삭제")
     df_manage, _ = get_pms_data()

@@ -3270,12 +3270,8 @@ def _guess_project_from_filename(filename: str, pjt_list: list) -> str:
     return ""
 
 
-def parse_daily_report_xlsx(uploaded_file) -> list:
-    """
-    합천댐 일일보고 엑셀 형식 파싱.
-    반환: [{"date": "2026-06-02", "rows": [{구분, 대분류, 세부항목, 업무내용, 공정율, 비고}, ...]}, ...]
-    """
-    df = pd.read_excel(uploaded_file, sheet_name=0, header=None)
+def _parse_daily_report_sheet_df(df: pd.DataFrame) -> list:
+    """단일 시트 DataFrame에서 일일보고 섹션 목록 파싱"""
     reports = []
     report_date = None
     rows = []
@@ -3333,6 +3329,24 @@ def parse_daily_report_xlsx(uploaded_file) -> list:
                 last["비고"] = f"{last['비고']}\n{c11}".strip() if last["비고"] else c11
     _flush()
     return reports
+
+
+def parse_daily_report_xlsx(uploaded_file) -> list:
+    """
+    합천댐 일일보고 엑셀 형식 파싱 (6월/7월/8월 등 모든 시트).
+    반환: [{"date": "2026-06-02", "rows": [{구분, 대분류, 세부항목, 업무내용, 공정율, 비고}, ...]}, ...]
+    동일 날짜가 여러 시트에 있으면 뒤 시트 내용으로 덮어씀.
+    """
+    if hasattr(uploaded_file, "seek"):
+        uploaded_file.seek(0)
+    all_sheets = pd.read_excel(uploaded_file, sheet_name=None, header=None)
+    by_date = {}
+    for _sheet_name, df in all_sheets.items():
+        if df is None or df.empty:
+            continue
+        for section in _parse_daily_report_sheet_df(df):
+            by_date[section["date"]] = section
+    return [by_date[d] for d in sorted(by_date.keys())]
 
 
 def _get_daily_report_worksheet(sh):

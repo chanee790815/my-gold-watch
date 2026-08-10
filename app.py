@@ -263,18 +263,33 @@ st.markdown("""
         .daily-report-date-box { flex: 0 0 140px; font-size: 16px; padding: 12px 8px; }
     }
     .daily-report-viewport--dashboard {
-        max-height: 420px;
+        max-height: 640px;
+        min-height: 360px;
         overflow: auto;
         margin: 4px 0 0 0;
+        width: 100%;
     }
     .daily-report-viewport--dashboard .daily-report-sheet {
-        min-width: 520px;
-        font-size: 11px;
+        min-width: 100%;
+        width: 100%;
+        font-size: 12px;
     }
     .daily-report-viewport--dashboard .daily-report-date-box {
-        flex: 0 0 130px;
-        font-size: 15px;
-        padding: 10px 8px;
+        flex: 0 0 150px;
+        font-size: 17px;
+        padding: 12px 10px;
+    }
+    .daily-report-viewport--dashboard .daily-report-table th {
+        font-size: 12px;
+        padding: 7px 5px;
+    }
+    .daily-report-viewport--dashboard .daily-report-table td {
+        font-size: 12px;
+        padding: 6px 7px;
+    }
+    .daily-report-viewport--dashboard .daily-report-table .dr-col-note {
+        font-size: 11px;
+        width: 160px;
     }
     .daily-report-top--compact {
         border-bottom: 1px solid #b4b4b4;
@@ -2263,7 +2278,7 @@ def view_dashboard(sh, pjt_list):
                 with h_col2:
                     st.button("🔍 상세", key=f"btn_go_{d['p_name']}", on_click=navigate_to_project, args=(d['p_name'],), use_container_width=True)
 
-                weekly_col, daily_col = st.columns([1, 1.05], gap="medium")
+                weekly_col, daily_col = st.columns([0.85, 1.35], gap="medium")
                 fs = st.session_state.get("dashboard_report_font_size", 12)
                 this_w_html = html_module.escape(str(d['this_w'])).replace('\n', '<br>')
                 next_w_html = html_module.escape(str(d['next_w'])).replace('\n', '<br>')
@@ -3683,18 +3698,33 @@ body { margin: 0; padding: 0; font-family: 'Pretendard', 'Malgun Gothic', sans-s
     color: #1565c0;
 }
 .daily-report-viewport--dashboard {
-    max-height: 420px;
+    max-height: 640px;
+    min-height: 360px;
     overflow: auto;
     margin: 4px 0 0 0;
+    width: 100%;
 }
 .daily-report-viewport--dashboard .daily-report-sheet {
-    min-width: 520px;
-    font-size: 11px;
+    min-width: 100%;
+    width: 100%;
+    font-size: 12px;
 }
 .daily-report-viewport--dashboard .daily-report-date-box {
-    flex: 0 0 130px;
-    font-size: 15px;
-    padding: 10px 8px;
+    flex: 0 0 150px;
+    font-size: 17px;
+    padding: 12px 10px;
+}
+.daily-report-viewport--dashboard .daily-report-table th {
+    font-size: 12px;
+    padding: 7px 5px;
+}
+.daily-report-viewport--dashboard .daily-report-table td {
+    font-size: 12px;
+    padding: 6px 7px;
+}
+.daily-report-viewport--dashboard .daily-report-table .dr-col-note {
+    font-size: 11px;
+    width: 160px;
 }
 .daily-report-top--compact { border-bottom: 1px solid #b4b4b4; }
 """
@@ -3703,7 +3733,7 @@ body { margin: 0; padding: 0; font-family: 'Pretendard', 'Malgun Gothic', sans-s
 def _estimate_daily_report_embed_height(row_count: int, compact: bool) -> int:
     n = max(row_count, 1)
     if compact:
-        return min(450, max(180, 72 + n * 28))
+        return min(680, max(360, 100 + n * 32))
     return min(1200, max(300, 140 + n * 32))
 
 
@@ -4050,13 +4080,62 @@ def view_daily_report(sh, pjt_list):
                 st.warning("일일보고 형식의 데이터를 찾지 못했습니다. 날짜 행(예: 2026년06월02일)이 있는지 확인하세요.")
             else:
                 dates = [s["date"] for s in sections]
-                st.success(f"**{len(sections)}개** 일자, 총 **{sum(len(s['rows']) for s in sections)}건** 항목을 읽었습니다.")
+                months = sorted({d[:7] for d in dates})
+                month_counts = {m: sum(1 for d in dates if d.startswith(m)) for m in months}
+                month_hint = ", ".join(f"{m}({month_counts[m]}일)" for m in months)
+                st.success(
+                    f"**{len(sections)}개** 일자, 총 **{sum(len(s['rows']) for s in sections)}건** 항목을 읽었습니다. "
+                    f"— 월별: {month_hint}"
+                )
+                if len(months) < 2:
+                    st.warning("시트가 여러 개인데도 한 달만 읽혔다면 앱을 재시작한 뒤 파일을 다시 선택해 주세요.")
+
+                # 방금 파싱한 전체 시트 결과를 항상 사용 (이전 세션의 6월-only 캐시 방지)
+                upload_draft_key = f"dr_upload_sections_{uploaded.name}"
+                st.session_state[upload_draft_key] = sections
+
+                save_pjt = pjt_sel if pjt_sel != "선택" else guess_default
+                total_items = sum(len(s["rows"]) for s in sections)
+
+                # ★ 전체 일괄 저장을 맨 위에 배치 (미리보기 일자 저장과 혼동 방지)
+                if save_pjt:
+                    st.markdown("##### 🚀 전체 일자 한번에 저장")
+                    st.info(
+                        f"엑셀에서 읽은 **{len(sections)}개 일자 / {total_items}건** "
+                        f"({month_hint})을 구글 시트 `{DAILY_REPORT_SHEET}`에 **한 번에** 올립니다. "
+                        "아래 편집기의 ‘구글 시트에 저장’은 **선택한 하루만** 저장됩니다."
+                    )
+                    if st.button(
+                        f"💾 전체 {len(sections)}개 일자 한번에 저장 ({month_hint})",
+                        type="primary",
+                        use_container_width=True,
+                        key="daily_report_save_all_btn",
+                    ):
+                        all_sections = [{"date": s["date"], "rows": s["rows"]} for s in sections]
+                        save_months = sorted({s["date"][:7] for s in all_sections})
+                        with st.spinner(f"전체 {len(all_sections)}개 일자({', '.join(save_months)}) 저장 중…"):
+                            cnt = save_daily_reports_to_sheet(
+                                sh,
+                                save_pjt,
+                                all_sections,
+                                st.session_state.get("user_id", ""),
+                                overwrite_dates=overwrite,
+                            )
+                        st.session_state.pop(upload_draft_key, None)
+                        clear_file_cache(DAILY_REPORT_SHEET)
+                        cached_get_all_records.clear()
+                        st.success(
+                            f"총 **{cnt}건** / **{len(all_sections)}개 일자** 저장 완료 "
+                            f"({', '.join(save_months)}). 사이드바 **구글 시트 새로고침** 후 확인해 주세요."
+                        )
+                        st.rerun()
+                else:
+                    st.warning("전체 저장하려면 위에서 **프로젝트**를 선택하세요.")
+
+                st.divider()
                 preview_date = st.selectbox("미리보기 일자", dates, key="daily_report_preview_date")
                 preview_section = next(s for s in sections if s["date"] == preview_date)
-                preview_pjt = pjt_sel if pjt_sel != "선택" else guess_default
-                upload_draft_key = f"dr_upload_sections_{uploaded.name}"
-                if upload_draft_key not in st.session_state:
-                    st.session_state[upload_draft_key] = sections
+                preview_pjt = save_pjt or guess_default
 
                 st.markdown("##### 👁️ 업로드 미리보기")
                 _render_daily_report_section_table(
@@ -4065,39 +4144,17 @@ def view_daily_report(sh, pjt_list):
                     project_name=preview_pjt or None,
                 )
 
-                save_pjt = pjt_sel if pjt_sel != "선택" else guess_default
                 if save_pjt:
-                    st.markdown("##### ✏️ 업로드 내용 편집·저장")
-                    sec_for_edit = next(
-                        s for s in st.session_state[upload_draft_key] if s["date"] == preview_date
-                    )
-                    _render_daily_report_edit_and_save(
-                        sh,
-                        save_pjt,
-                        preview_date,
-                        sec_for_edit["rows"],
-                        "upload",
-                        show_html_preview=False,
-                    )
-
-                    if st.button("💾 파일 전체 일자 한번에 저장", key="daily_report_save_all_btn"):
-                        all_sections = []
-                        for s in st.session_state[upload_draft_key]:
-                            draft_k = f"dr_draft_upload_{save_pjt}_{s['date']}"
-                            rows = st.session_state.get(draft_k, s["rows"])
-                            all_sections.append({"date": s["date"], "rows": rows})
-                        with st.spinner("전체 일자 저장 중…"):
-                            cnt = save_daily_reports_to_sheet(
-                                sh,
-                                save_pjt,
-                                all_sections,
-                                st.session_state.get("user_id", ""),
-                                overwrite_dates=overwrite,
-                            )
-                        st.success(f"총 {cnt}건 저장되었습니다.")
-                        st.rerun()
-                else:
-                    st.warning("저장·편집하려면 프로젝트를 선택하세요.")
+                    with st.expander("✏️ 특정 일자만 수정 후 저장 (선택)", expanded=False):
+                        st.caption("이 영역의 저장 버튼은 **지금 선택한 미리보기 일자 하루만** 덮어씁니다.")
+                        _render_daily_report_edit_and_save(
+                            sh,
+                            save_pjt,
+                            preview_date,
+                            preview_section["rows"],
+                            "upload",
+                            show_html_preview=False,
+                        )
 
                 buf = io.BytesIO()
                 export_rows = []
